@@ -2,9 +2,15 @@ from zk import ZK, const
 import pandas as pd
 from dateutil import parser
 from datetime import datetime, time
+import threading
+import time as time_module
+import requests
+import os
 
 class ZKTecoAttendance:
-    def __init__(self, ip_address, port=4370, timeout=5, password=0):
+    def __init__(self, ip_address, port=4370, timeout=5, password=0,
+                 api_url="http://localhost:3000/api/attendance/device",
+                 api_key="super-secret-key-here", poll_interval=60):
         self.ip_address = ip_address
         self.port = port
         self.timeout = timeout
@@ -13,23 +19,42 @@ class ZKTecoAttendance:
         self.conn = None
         self.users = {}  # Cache for user information
 
+        # Sync-related
+        self.api_url = api_url
+        self.api_key = api_key
+        self.poll_interval = poll_interval
+        self.last_sync_file = "last_sync.txt"
+        self.last_sync_time = None
+        self.last_api_status = None
+        self.sync_thread = None
+        self.sync_running = False
+
+    # ------------------ CONNECTION ------------------
     def connect(self):
         try:
             self.conn = self.zk.connect()
             # Load user information
             self.load_users()
             print(f"Successfully connected to device at {self.ip_address}")
+
+            # Start sync thread automatically
+            self.sync_running = True
+            self.sync_thread = threading.Thread(target=self._sync_loop, daemon=True)
+            self.sync_thread.start()
+
         except Exception as e:
             print(f"Error connecting to device: {str(e)}")
             self.conn = None
 
     def disconnect(self):
+        self.sync_running = False
         if self.conn:
             self.conn.disconnect()
             print("Disconnected from device")
             self.conn = None
             self.users = {}
 
+    # ------------------ USERS ------------------
     def load_users(self):
         """Load all users from the device"""
         if not self.conn:
@@ -41,11 +66,9 @@ class ZKTecoAttendance:
         except Exception as e:
             print(f"Error loading users: {str(e)}")
 
+    # ------------------ ATTENDANCE ------------------
     def get_attendance_status(self, punch):
         """Convert punch value to check-in/check-out status"""
-        # According to ZKTeco documentation:
-        # 0: Check In
-        # 1: Check Out
         punch_map = {
             0: "Check In",
             1: "Check Out"
@@ -63,14 +86,12 @@ class ZKTecoAttendance:
                 return None
 
             print(f"Retrieved {len(attendance)} attendance records")
-            
-            # Convert dates to datetime objects if they're not already
+
             if start_date and not isinstance(start_date, datetime):
                 start_date = datetime.combine(start_date, time.min)
             if end_date and not isinstance(end_date, datetime):
                 end_date = datetime.combine(end_date, time.max)
 
-            # First, collect all records
             raw_records = []
             for att in attendance:
                 dt = att.timestamp
@@ -87,15 +108,12 @@ class ZKTecoAttendance:
                     'status': self.get_attendance_status(att.punch)
                 })
 
-            # Convert to DataFrame for easier manipulation
             df = pd.DataFrame(raw_records)
             if df.empty:
                 return None
 
-            # Sort by user_id and timestamp
             df = df.sort_values(['user_id', 'timestamp'])
 
-            # Group records by user and date
             grouped_records = []
             current_user = None
             current_date = None
@@ -109,7 +127,6 @@ class ZKTecoAttendance:
                 date = timestamp.date()
                 punch = row['punch']
 
-                # If new user or new date, save previous record and start new one
                 if current_user != user_id or current_date != date:
                     if current_user is not None and check_in is not None:
                         grouped_records.append({
@@ -125,13 +142,11 @@ class ZKTecoAttendance:
                     check_in = None
                     check_out = None
 
-                # Update check-in or check-out time
-                if punch == 0:  # Check In
+                if punch == 0:
                     check_in = timestamp
-                elif punch == 1:  # Check Out
+                elif punch == 1:
                     check_out = timestamp
 
-            # Add the last record
             if current_user is not None and check_in is not None:
                 grouped_records.append({
                     'user_id': current_user,
@@ -141,14 +156,12 @@ class ZKTecoAttendance:
                     'check_out': check_out
                 })
 
-            # Convert to DataFrame
             result_df = pd.DataFrame(grouped_records)
-            
-            # Calculate duration if both check-in and check-out are present
+
             if not result_df.empty:
                 result_df['duration'] = result_df.apply(
                     lambda row: (row['check_out'] - row['check_in']).total_seconds() / 3600 
-                    if pd.notnull(row['check_out']) else None, 
+                    if pd.notnull(row['check_out']) else None,
                     axis=1
                 )
 
@@ -162,6 +175,72 @@ class ZKTecoAttendance:
             print(f"Error retrieving attendance records: {str(e)}")
             return None
 
+    # ------------------ SYNC LOGIC ------------------
+    def _load_last_sync(self):
+        try:
+            if os.path.exists(self.last_sync_file):
+                with open(self.last_sync_file, "r") as f:
+                    return datetime.fromisoformat(f.read().strip())
+        except Exception:
+            return None
+        return None
+
+    def _save_last_sync(self, ts):
+        try:
+            with open(self.last_sync_file, "w") as f:
+                f.write(ts.isoformat())
+        except Exception as e:
+            print(f"Error saving last sync time: {e}")
+
+    def _send_log(self, user_id, timestamp):
+        payload = {"user_id": str(user_id), "timestamp": timestamp.isoformat()}
+        headers = {"x-api-key": self.api_key, "Content-Type": "application/json"}
+        try:
+            r = requests.post(self.api_url, json=payload, headers=headers, timeout=50)
+            self.last_api_status = f"{datetime.now()} → Status {r.status_code}"
+            print(f"Sent log {payload} → Status {r.status_code}")
+        except Exception as e:
+            self.last_api_status = f"Error: {e}"
+            print(f"Error sending log: {e}")
+
+    def _sync_loop(self):
+        print("Starting background sync loop...")
+        last_sync = self._load_last_sync()
+        new_last_sync = last_sync
+
+        while self.sync_running:
+            try:
+                if not self.conn:
+                    print("Not connected, skipping sync cycle...")
+                    time_module.sleep(self.poll_interval)
+                    continue
+
+                logs = self.conn.get_attendance()
+                logs.sort(key=lambda x: x.timestamp)
+
+                for log in logs:
+                    if last_sync is None or log.timestamp > last_sync:
+                        self._send_log(log.user_id, log.timestamp)
+                        if new_last_sync is None or log.timestamp > new_last_sync:
+                            new_last_sync = log.timestamp
+
+                if new_last_sync:
+                    self._save_last_sync(new_last_sync)
+                    self.last_sync_time = new_last_sync
+                    print(f"Updated last sync time → {new_last_sync}")
+
+            except Exception as e:
+                print(f"Sync error: {e}")
+
+            time_module.sleep(self.poll_interval)
+
+    def get_sync_status(self):
+        return {
+            "last_sync_time": self.last_sync_time,
+            "last_api_status": self.last_api_status
+        }
+
+# ------------------ MAIN TEST ------------------
 def main():
     device_ip = "192.168.1.201"  # Replace with your device's IP address
     attendance_system = ZKTecoAttendance(device_ip)
@@ -174,8 +253,15 @@ def main():
                 print(attendance_records)
                 attendance_records.to_csv('attendance_records.csv', index=False)
                 print("\nRecords saved to 'attendance_records.csv'")
+
+            # Keep main alive to allow background sync
+            print("Running... Press Ctrl+C to exit.")
+            while True:
+                time_module.sleep(10)
+    except KeyboardInterrupt:
+        print("Exiting...")
     finally:
         attendance_system.disconnect()
 
 if __name__ == "__main__":
-    main() 
+    main()

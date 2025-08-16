@@ -20,7 +20,7 @@ class AttendanceGUI:
         connection_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Label(connection_frame, text="IP Address:").grid(row=0, column=0, padx=5)
-        self.ip_var = tk.StringVar(value="172.31.11.252")
+        self.ip_var = tk.StringVar(value="192.168.1.201")
         ttk.Entry(connection_frame, textvariable=self.ip_var, width=15).grid(row=0, column=1, padx=5)
         
         ttk.Label(connection_frame, text="Port:").grid(row=0, column=2, padx=5)
@@ -86,7 +86,7 @@ class AttendanceGUI:
         self.tree.column('date', width=100)
         self.tree.column('check_in', width=150)
         self.tree.column('check_out', width=150)
-        self.tree.column('duration', width=100)
+        self.tree.column('duration', width=120)
         
         self.tree.pack(expand=True, fill=tk.BOTH)
         
@@ -135,11 +135,8 @@ class AttendanceGUI:
             records = self.attendance_system.get_attendance(start_date, end_date)
             
             if records is not None and not records.empty:
-                # Insert records into treeview
                 for _, row in records.iterrows():
-                    # Format duration to 2 decimal places if not None
                     duration = f"{row['duration']:.2f}" if pd.notnull(row['duration']) else "N/A"
-                    
                     self.tree.insert('', tk.END, values=(
                         row['user_id'],
                         row['user_name'],
@@ -149,10 +146,10 @@ class AttendanceGUI:
                         duration
                     ))
                 
-                self.status_var.set(f"Retrieved {len(records)} records")
+                self.status_var.set(f"Retrieved {len(records)} records from device")
                 self.export_button.config(state=tk.NORMAL)
             else:
-                self.status_var.set("No records found")
+                self.status_var.set("No records found for selected dates")
                 self.export_button.config(state=tk.DISABLED)
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -164,11 +161,8 @@ class AttendanceGUI:
             return
         
         try:
-            # Get date range
             start_date = self.start_date.get_date()
             end_date = self.end_date.get_date()
-            
-            # Retrieve and export records
             records = self.attendance_system.get_attendance(start_date, end_date)
             
             if records is not None and not records.empty:
@@ -188,4 +182,4 @@ def main():
     root.mainloop()
 
 if __name__ == "__main__":
-    main() 
+    main()
