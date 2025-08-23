@@ -7,6 +7,7 @@ import time as time_module
 import requests
 import os
 
+
 class ZKTecoAttendance:
     def __init__(self, ip_address, port=4370, timeout=5, password=0,
                  api_url="http://localhost:3000/api/attendance/device",
@@ -15,9 +16,10 @@ class ZKTecoAttendance:
         self.port = port
         self.timeout = timeout
         self.password = password
-        self.zk = ZK(self.ip_address, port=self.port, timeout=self.timeout, password=self.password)
+        self.zk = ZK(self.ip_address, port=self.port,
+                     timeout=self.timeout, password=self.password)
         self.conn = None
-        self.users = {}  # Cache for user information
+        self.users = {}
 
         # Sync-related
         self.api_url = api_url
@@ -33,13 +35,12 @@ class ZKTecoAttendance:
     def connect(self):
         try:
             self.conn = self.zk.connect()
-            # Load user information
             self.load_users()
             print(f"Successfully connected to device at {self.ip_address}")
 
-            # Start sync thread automatically
             self.sync_running = True
-            self.sync_thread = threading.Thread(target=self._sync_loop, daemon=True)
+            self.sync_thread = threading.Thread(
+                target=self._sync_loop, daemon=True)
             self.sync_thread.start()
 
         except Exception as e:
@@ -56,7 +57,6 @@ class ZKTecoAttendance:
 
     # ------------------ USERS ------------------
     def load_users(self):
-        """Load all users from the device"""
         if not self.conn:
             return
         try:
@@ -68,11 +68,7 @@ class ZKTecoAttendance:
 
     # ------------------ ATTENDANCE ------------------
     def get_attendance_status(self, punch):
-        """Convert punch value to check-in/check-out status"""
-        punch_map = {
-            0: "Check In",
-            1: "Check Out"
-        }
+        punch_map = {0: "Check In", 1: "Check Out"}
         return punch_map.get(punch, f"Unknown Punch ({punch})")
 
     def get_attendance(self, start_date=None, end_date=None):
@@ -95,9 +91,8 @@ class ZKTecoAttendance:
             raw_records = []
             for att in attendance:
                 dt = att.timestamp
-                if start_date and end_date:
-                    if not (start_date <= dt <= end_date):
-                        continue
+                if start_date and end_date and not (start_date <= dt <= end_date):
+                    continue
                 user_name = self.users.get(att.user_id, "Unknown")
                 raw_records.append({
                     'user_id': att.user_id,
@@ -159,8 +154,10 @@ class ZKTecoAttendance:
             result_df = pd.DataFrame(grouped_records)
 
             if not result_df.empty:
+                target_days = [6, 0, 2, 4]
+                result_df = result_df[result_df['date'].apply(lambda d: d.weekday() in target_days)]
                 result_df['duration'] = result_df.apply(
-                    lambda row: (row['check_out'] - row['check_in']).total_seconds() / 3600 
+                    lambda row: (row['check_out'] - row['check_in']).total_seconds() / 3600
                     if pd.notnull(row['check_out']) else None,
                     axis=1
                 )
@@ -242,7 +239,7 @@ class ZKTecoAttendance:
 
 # ------------------ MAIN TEST ------------------
 def main():
-    device_ip = "192.168.1.201"  # Replace with your device's IP address
+    device_ip = "192.168.1.201"
     attendance_system = ZKTecoAttendance(device_ip)
     try:
         attendance_system.connect()
@@ -254,7 +251,6 @@ def main():
                 attendance_records.to_csv('attendance_records.csv', index=False)
                 print("\nRecords saved to 'attendance_records.csv'")
 
-            # Keep main alive to allow background sync
             print("Running... Press Ctrl+C to exit.")
             while True:
                 time_module.sleep(10)

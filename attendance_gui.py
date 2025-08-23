@@ -8,7 +8,7 @@ import pandas as pd
 class AttendanceGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("ZKTeco Attendance System")
+        self.root.title("COC Attendance System")
         self.root.geometry("1300x600")
         
         # Create main frame
@@ -78,15 +78,15 @@ class AttendanceGUI:
         self.tree.heading('user_name', text='Name')
         self.tree.heading('date', text='Date')
         self.tree.heading('check_in', text='Check In')
-        self.tree.heading('check_out', text='Check Out')
-        self.tree.heading('duration', text='Duration (hours)')
+        # self.tree.heading('check_out', text='Check Out')
+        # self.tree.heading('duration', text='Duration (hours)')
         
         self.tree.column('user_id', width=100)
         self.tree.column('user_name', width=150)
         self.tree.column('date', width=100)
         self.tree.column('check_in', width=150)
-        self.tree.column('check_out', width=150)
-        self.tree.column('duration', width=120)
+        # self.tree.column('check_out', width=150)
+        # self.tree.column('duration', width=120)
         
         self.tree.pack(expand=True, fill=tk.BOTH)
         
