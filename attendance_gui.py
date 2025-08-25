@@ -1,185 +1,266 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-from tkcalendar import DateEntry
-from datetime import datetime
+import sys
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QGroupBox, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QTextEdit, QDateEdit, QMessageBox, QMenuBar, QAction
+)
+from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QIntValidator, QIcon
 from attendance_system import ZKTecoAttendance
 import pandas as pd
 
-class AttendanceGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("COC Attendance System")
-        self.root.geometry("1300x600")
-        
-        # Create main frame
-        main_frame = ttk.Frame(root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Device connection frame
-        connection_frame = ttk.LabelFrame(main_frame, text="Device Connection", padding="5")
-        connection_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        ttk.Label(connection_frame, text="IP Address:").grid(row=0, column=0, padx=5)
-        self.ip_var = tk.StringVar(value="192.168.1.201")
-        ttk.Entry(connection_frame, textvariable=self.ip_var, width=15).grid(row=0, column=1, padx=5)
-        
-        ttk.Label(connection_frame, text="Port:").grid(row=0, column=2, padx=5)
-        self.port_var = tk.StringVar(value="4370")
-        ttk.Entry(connection_frame, textvariable=self.port_var, width=6).grid(row=0, column=3, padx=5)
-        
-        self.connect_button = ttk.Button(connection_frame, text="Connect", command=self.connect_device)
-        self.connect_button.grid(row=0, column=4, padx=5)
-        
-        # Date filter frame
-        date_frame = ttk.LabelFrame(main_frame, text="Date Filter", padding="5")
-        date_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        ttk.Label(date_frame, text="Start Date:").grid(row=0, column=0, padx=5)
-        self.start_date = DateEntry(date_frame, width=12, background='darkblue',
-                                  foreground='white', borderwidth=2)
-        self.start_date.grid(row=0, column=1, padx=5)
-        
-        ttk.Label(date_frame, text="End Date:").grid(row=0, column=2, padx=5)
-        self.end_date = DateEntry(date_frame, width=12, background='darkblue',
-                                foreground='white', borderwidth=2)
-        self.end_date.grid(row=0, column=3, padx=5)
-        
-        self.retrieve_button = ttk.Button(date_frame, text="Retrieve Records", 
-                                        command=self.retrieve_records, state=tk.DISABLED)
-        self.retrieve_button.grid(row=0, column=4, padx=5)
-        
-        self.export_button = ttk.Button(date_frame, text="Export to CSV", 
-                                      command=self.export_records, state=tk.DISABLED)
-        self.export_button.grid(row=0, column=5, padx=5)
-        
-        # Create Treeview with scrollbars
-        tree_frame = ttk.Frame(main_frame)
-        tree_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Create scrollbars
-        y_scrollbar = ttk.Scrollbar(tree_frame)
-        y_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        x_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-        x_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # Create Treeview
-        columns = ('user_id', 'user_name', 'date', 'check_in', 'check_out', 'duration')
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show='headings',
-                                yscrollcommand=y_scrollbar.set,
-                                xscrollcommand=x_scrollbar.set)
-        
-        # Configure scrollbars
-        y_scrollbar.config(command=self.tree.yview)
-        x_scrollbar.config(command=self.tree.xview)
-        
-        # Configure columns
-        self.tree.heading('user_id', text='User ID')
-        self.tree.heading('user_name', text='Name')
-        self.tree.heading('date', text='Date')
-        self.tree.heading('check_in', text='Check In')
-        # self.tree.heading('check_out', text='Check Out')
-        # self.tree.heading('duration', text='Duration (hours)')
-        
-        self.tree.column('user_id', width=100)
-        self.tree.column('user_name', width=150)
-        self.tree.column('date', width=100)
-        self.tree.column('check_in', width=150)
-        # self.tree.column('check_out', width=150)
-        # self.tree.column('duration', width=120)
-        
-        self.tree.pack(expand=True, fill=tk.BOTH)
-        
-        # Status bar
-        self.status_var = tk.StringVar()
-        self.status_var.set("Not connected")
-        status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_bar.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E))
-        
-        # Initialize attendance system
+
+class AttendanceWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("COC Attendance System")
+        self.resize(1300, 650)
+
+        # Set icon if available
+        try:
+            self.setWindowIcon(QIcon("icon.png"))
+        except Exception:
+            pass
+
         self.attendance_system = None
-        
+
+        # -------- Menu Bar (with icon space) --------
+        menu_bar = self.menuBar()
+        self.brand_action = QAction(QIcon("icon.png"), "", self)
+        self.brand_action.setEnabled(False)
+        menu_bar.addAction(self.brand_action)
+
+        help_menu = menu_bar.addMenu("Help")
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+
+        # -------- Layout Setup --------
+        central = QWidget()
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setSpacing(16)
+
+        # Left Column (Device, Date, Table)
+        left_col = QVBoxLayout()
+        left_col.setSpacing(12)
+
+        # Device Connection Box
+        conn_group = QGroupBox("Device Connection")
+        conn_layout = QHBoxLayout(conn_group)
+        conn_layout.addWidget(QLabel("IP Address:"))
+        self.ip_edit = QLineEdit("192.168.1.201")
+        self.ip_edit.setFixedWidth(160)
+        conn_layout.addWidget(self.ip_edit)
+
+        conn_layout.addWidget(QLabel("Port:"))
+        self.port_edit = QLineEdit("4370")
+        self.port_edit.setValidator(QIntValidator(1, 65535, self))
+        self.port_edit.setFixedWidth(80)
+        conn_layout.addWidget(self.port_edit)
+
+        self.connect_btn = QPushButton("Connect")
+        self.connect_btn.clicked.connect(self.connect_device)
+        conn_layout.addWidget(self.connect_btn)
+        conn_layout.addStretch(1)
+        left_col.addWidget(conn_group)
+
+        # Date Filter Box
+        date_group = QGroupBox("Date Filter")
+        date_layout = QHBoxLayout(date_group)
+        date_layout.addWidget(QLabel("Start Date:"))
+        self.start_date = QDateEdit(calendarPopup=True)
+        self.start_date.setDisplayFormat("yyyy-MM-dd")
+        self.start_date.setDate(QDate.currentDate())
+        date_layout.addWidget(self.start_date)
+
+        date_layout.addWidget(QLabel("End Date:"))
+        self.end_date = QDateEdit(calendarPopup=True)
+        self.end_date.setDisplayFormat("yyyy-MM-dd")
+        self.end_date.setDate(QDate.currentDate())
+        date_layout.addWidget(self.end_date)
+
+        self.retrieve_btn = QPushButton("Retrieve Records")
+        self.retrieve_btn.setEnabled(False)
+        self.retrieve_btn.clicked.connect(self.retrieve_records)
+        date_layout.addWidget(self.retrieve_btn)
+
+        self.export_btn = QPushButton("Export to CSV")
+        self.export_btn.setEnabled(False)
+        self.export_btn.clicked.connect(self.export_records)
+        date_layout.addWidget(self.export_btn)
+
+        date_layout.addStretch(1)
+        left_col.addWidget(date_group)
+
+        # Attendance Records Table
+        self.table = QTableWidget(0, 6)
+        self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalHeaderLabels([
+            "User ID", "Name", "Date", "Check In", "Check Out", "Duration (hours)"
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(self.table.SelectRows)
+        self.table.setEditTriggers(self.table.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        try:
+            from PyQt5.QtWidgets import QHeaderView
+            header = self.table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        except Exception:
+            pass
+
+        left_col.addWidget(self.table, 1)
+        left_wrap = QWidget()
+        left_wrap.setLayout(left_col)
+        root_layout.addWidget(left_wrap, 3)
+
+        # Right Column (Steps to Use)
+        steps_group = QGroupBox("Steps to Use")
+        steps_layout = QVBoxLayout(steps_group)
+        self.steps_text = QTextEdit()
+        self.steps_text.setReadOnly(True)
+        self.steps_text.setPlainText(
+            "A. Quick Setup\n"
+            "  1) Plug in your ZKTeco MB460 device via ethernet (stable option)\n and ensure it's on the same network.\n"
+            "  2) Confirm the IP address (e.g., 192.168.1.201).\n"
+
+            "B. Connect\n"
+            "  1) Enter IP and Port, click ‘Connect’.\n"
+            "  2) Watch status bar for ‘Connected’ confirmation.\n\n"
+            "C. Retrieve Logs\n"
+            "  1) Select Start and End dates.\n"
+            "  2) Click ‘Retrieve Records’ to populate the table.\n\n"
+            "D. Export\n"
+            "  1) Click ‘Export to CSV’ to save filtered records.\n"
+            "  2) Use Excel or Google Sheets for analysis.\n\n"
+            "E. Pro Tips\n"
+            "  • Sync happens automatically only on Sunday, Monday, Wednesday, and Friday.\n"
+            "  • Keep device clock accurate.\n"
+            "  • Static IP must be set to prevent random disconnections.\n"
+        )
+        steps_layout.addWidget(self.steps_text)
+        root_layout.addWidget(steps_group, 1)
+
+        self.setCentralWidget(central)
+        self.statusBar().showMessage("Not connected")
+
+        # UI Styling
+        self.setStyleSheet(
+            "QMainWindow{background:#F7F9FC;}"
+            "QMenuBar{background:#FFFFFF;border-bottom:1px solid #E5EAF2;padding:4px;}"
+            "QMenuBar::item{padding:4px 10px;margin:0 2px;border-radius:6px;}"
+            "QMenuBar::item:selected{background:#EEF2FA;}"
+            "QGroupBox{font-weight:600;border:1px solid #D9DEE7;border-radius:10px;"
+            "margin-top:8px;padding:10px;}"
+            "QGroupBox::title{subcontrol-origin: margin; left:10px; padding:0 6px;}"
+            "QLabel{font-size:11pt;color:#222;}"
+            "QPushButton{padding:6px 12px;border:1px solid #C5CCD8;border-radius:8px;"
+            "background:#FFFFFF;font-weight:600;}"
+            "QPushButton:hover{background:#F6F8FF;}"
+            "QPushButton:disabled{color:#888;background:#F0F2F6;}"
+            "QTableWidget{background:#FFFFFF;border:1px solid #D9DEE7;border-radius:8px;"
+            "gridline-color:#EDF1F7;}"
+            "QHeaderView::section{background:#FBFCFE;border:none;border-bottom:1px solid #E6EBF3;"
+            "padding:6px;font-weight:600;}"
+            "QTableWidget::item:selected{background:#162761;}"
+        )
+
+    # -------- Logic --------
     def connect_device(self):
         try:
-            ip = self.ip_var.get()
-            port = int(self.port_var.get())
-            
+            ip = self.ip_edit.text().strip()
+            port = int(self.port_edit.text().strip() or 4370)
             self.attendance_system = ZKTecoAttendance(ip, port=port)
             self.attendance_system.connect()
-            
-            if self.attendance_system.conn:
-                self.status_var.set(f"Connected to {ip}")
-                self.connect_button.config(state=tk.DISABLED)
-                self.retrieve_button.config(state=tk.NORMAL)
+
+            if getattr(self.attendance_system, 'conn', None):
+                self.statusBar().showMessage(f"Connected to {ip}")
+                self.connect_btn.setEnabled(False)
+                self.retrieve_btn.setEnabled(True)
             else:
-                self.status_var.set("Connection failed")
+                self.statusBar().showMessage("Connection failed")
         except Exception as e:
-            messagebox.showerror("Connection Error", str(e))
-            self.status_var.set("Connection failed")
-    
+            QMessageBox.critical(self, "Connection Error", str(e))
+            self.statusBar().showMessage("Connection failed")
+
     def retrieve_records(self):
-        if not self.attendance_system or not self.attendance_system.conn:
-            messagebox.showerror("Error", "Please connect to the device first")
+        if not self.attendance_system or not getattr(self.attendance_system, 'conn', None):
+            QMessageBox.critical(self, "Error", "Please connect to the device first")
             return
-        
         try:
-            # Clear existing records
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            
-            # Get date range
-            start_date = self.start_date.get_date()
-            end_date = self.end_date.get_date()
-            
-            # Retrieve records
+            self.table.setRowCount(0)
+            start_date = self.start_date.date().toPyDate()
+            end_date = self.end_date.date().toPyDate()
             records = self.attendance_system.get_attendance(start_date, end_date)
-            
+
             if records is not None and not records.empty:
-                for _, row in records.iterrows():
-                    duration = f"{row['duration']:.2f}" if pd.notnull(row['duration']) else "N/A"
-                    self.tree.insert('', tk.END, values=(
-                        row['user_id'],
-                        row['user_name'],
-                        row['date'].strftime('%Y-%m-%d'),
-                        row['check_in'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(row['check_in']) else "N/A",
-                        row['check_out'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(row['check_out']) else "N/A",
-                        duration
-                    ))
-                
-                self.status_var.set(f"Retrieved {len(records)} records from device")
-                self.export_button.config(state=tk.NORMAL)
+                self.populate_table(records)
+                self.statusBar().showMessage(f"Retrieved {len(records)} records")
+                self.export_btn.setEnabled(True)
             else:
-                self.status_var.set("No records found for selected dates")
-                self.export_button.config(state=tk.DISABLED)
+                self.statusBar().showMessage("No records found")
+                self.export_btn.setEnabled(False)
         except Exception as e:
-            messagebox.showerror("Error", str(e))
-            self.status_var.set("Error retrieving records")
-    
+            QMessageBox.critical(self, "Error", str(e))
+            self.statusBar().showMessage("Error retrieving records")
+
+    def populate_table(self, df: pd.DataFrame):
+        expected_cols = ["user_id", "user_name", "date", "check_in", "check_out", "duration"]
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = pd.NA
+
+        self.table.setRowCount(len(df))
+        for r, (_, row) in enumerate(df.iterrows()):
+            self.table.setItem(r, 0, QTableWidgetItem(str(row["user_id"])))
+            self.table.setItem(r, 1, QTableWidgetItem(str(row["user_name"])))
+            self.table.setItem(r, 2, QTableWidgetItem(str(row["date"])))
+            self.table.setItem(r, 3, QTableWidgetItem(str(row["check_in"])))
+            self.table.setItem(r, 4, QTableWidgetItem(str(row["check_out"])))
+            duration = f"{row['duration']:.2f}" if pd.notnull(row['duration']) else "N/A"
+            self.table.setItem(r, 5, QTableWidgetItem(duration))
+
     def export_records(self):
-        if not self.attendance_system or not self.attendance_system.conn:
-            messagebox.showerror("Error", "Please connect to the device first")
+        if not self.attendance_system or not getattr(self.attendance_system, 'conn', None):
+            QMessageBox.critical(self, "Error", "Please connect to the device first")
             return
-        
         try:
-            start_date = self.start_date.get_date()
-            end_date = self.end_date.get_date()
+            start_date = self.start_date.date().toPyDate()
+            end_date = self.end_date.date().toPyDate()
             records = self.attendance_system.get_attendance(start_date, end_date)
-            
+
             if records is not None and not records.empty:
-                filename = f"attendance_records_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv"
+                filename = f"attendance_records_{start_date}_{end_date}.csv"
                 records.to_csv(filename, index=False)
-                self.status_var.set(f"Records exported to {filename}")
-                messagebox.showinfo("Success", f"Records exported to {filename}")
+                self.statusBar().showMessage(f"Exported to {filename}")
+                QMessageBox.information(self, "Success", f"Records exported to {filename}")
             else:
-                self.status_var.set("No records to export")
+                self.statusBar().showMessage("No records to export")
         except Exception as e:
-            messagebox.showerror("Error", str(e))
-            self.status_var.set("Error exporting records")
+            QMessageBox.critical(self, "Error", str(e))
+            self.statusBar().showMessage("Error exporting records")
+
+    def show_about_dialog(self):
+        QMessageBox.information(
+            self,
+            "About",
+            "COC Attendance System\nVersion 1.0\nSyncs automatically on Sunday, Monday, Wednesday, and Friday."
+        )
+
 
 def main():
-    root = tk.Tk()
-    app = AttendanceGUI(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    win = AttendanceWindow()
+    win.show()
+    sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

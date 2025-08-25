@@ -7,7 +7,6 @@ import time as time_module
 import requests
 import os
 
-
 class ZKTecoAttendance:
     def __init__(self, ip_address, port=4370, timeout=5, password=0,
                  api_url="http://localhost:3000/api/attendance/device",
@@ -16,8 +15,7 @@ class ZKTecoAttendance:
         self.port = port
         self.timeout = timeout
         self.password = password
-        self.zk = ZK(self.ip_address, port=self.port,
-                     timeout=self.timeout, password=self.password)
+        self.zk = ZK(self.ip_address, port=self.port, timeout=self.timeout, password=self.password)
         self.conn = None
         self.users = {}
 
@@ -38,11 +36,10 @@ class ZKTecoAttendance:
             self.load_users()
             print(f"Successfully connected to device at {self.ip_address}")
 
+            # Start sync thread
             self.sync_running = True
-            self.sync_thread = threading.Thread(
-                target=self._sync_loop, daemon=True)
+            self.sync_thread = threading.Thread(target=self._sync_loop, daemon=True)
             self.sync_thread.start()
-
         except Exception as e:
             print(f"Error connecting to device: {str(e)}")
             self.conn = None
@@ -91,8 +88,9 @@ class ZKTecoAttendance:
             raw_records = []
             for att in attendance:
                 dt = att.timestamp
-                if start_date and end_date and not (start_date <= dt <= end_date):
-                    continue
+                if start_date and end_date:
+                    if not (start_date <= dt <= end_date):
+                        continue
                 user_name = self.users.get(att.user_id, "Unknown")
                 raw_records.append({
                     'user_id': att.user_id,
@@ -154,10 +152,8 @@ class ZKTecoAttendance:
             result_df = pd.DataFrame(grouped_records)
 
             if not result_df.empty:
-                target_days = [6, 0, 2, 4]
-                result_df = result_df[result_df['date'].apply(lambda d: d.weekday() in target_days)]
                 result_df['duration'] = result_df.apply(
-                    lambda row: (row['check_out'] - row['check_in']).total_seconds() / 3600
+                    lambda row: (row['check_out'] - row['check_in']).total_seconds() / 3600 
                     if pd.notnull(row['check_out']) else None,
                     axis=1
                 )
@@ -205,6 +201,9 @@ class ZKTecoAttendance:
         last_sync = self._load_last_sync()
         new_last_sync = last_sync
 
+        # Allowed days: Sunday(6), Monday(0), Wednesday(2), Friday(4)
+        ALLOWED_DAYS = {6, 0, 2, 4}
+
         while self.sync_running:
             try:
                 if not self.conn:
@@ -216,10 +215,14 @@ class ZKTecoAttendance:
                 logs.sort(key=lambda x: x.timestamp)
 
                 for log in logs:
-                    if last_sync is None or log.timestamp > last_sync:
-                        self._send_log(log.user_id, log.timestamp)
-                        if new_last_sync is None or log.timestamp > new_last_sync:
-                            new_last_sync = log.timestamp
+                    log_day = log.timestamp.weekday()
+                    if log_day in ALLOWED_DAYS:
+                        if last_sync is None or log.timestamp > last_sync:
+                            self._send_log(log.user_id, log.timestamp)
+                            if new_last_sync is None or log.timestamp > new_last_sync:
+                                new_last_sync = log.timestamp
+                    else:
+                        print(f"Skipping log for {log.timestamp.strftime('%A')} ({log.timestamp})")
 
                 if new_last_sync:
                     self._save_last_sync(new_last_sync)
@@ -239,7 +242,7 @@ class ZKTecoAttendance:
 
 # ------------------ MAIN TEST ------------------
 def main():
-    device_ip = "192.168.1.201"
+    device_ip = "192.168.1.201"  # Replace with your device's IP address
     attendance_system = ZKTecoAttendance(device_ip)
     try:
         attendance_system.connect()
