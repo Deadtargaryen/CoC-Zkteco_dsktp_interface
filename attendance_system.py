@@ -9,7 +9,7 @@ import os
 
 class ZKTecoAttendance:
     def __init__(self, ip_address, port=4370, timeout=5, password=0,
-                 api_url="http://localhost:3000/api/attendance/device",
+                 api_url="https://coc4towns-attendance.vercel.app/api/attendance/device",
                  api_key="super-secret-key-here", poll_interval=60):
         self.ip_address = ip_address
         self.port = port
