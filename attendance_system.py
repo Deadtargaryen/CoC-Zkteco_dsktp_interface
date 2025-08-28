@@ -1,11 +1,14 @@
 from zk import ZK, const
 import pandas as pd
 from dateutil import parser
-from datetime import datetime, time
+from datetime import datetime, time, timezone, timedelta
 import threading
 import time as time_module
 import requests
 import os
+
+
+LAGOS_TZ = timezone(timedelta(hours=1))
 
 class ZKTecoAttendance:
     def __init__(self, ip_address, port=4370, timeout=5, password=0,
@@ -91,7 +94,7 @@ class ZKTecoAttendance:
                 if start_date and end_date:
                     if not (start_date <= dt <= end_date):
                         continue
-                user_name = self.users.get(att.user_id, "Unknown")
+                user_name = self.users.get(str(att.user_id), "Unknown")
                 raw_records.append({
                     'user_id': att.user_id,
                     'user_name': user_name,
@@ -186,6 +189,8 @@ class ZKTecoAttendance:
             print(f"Error saving last sync time: {e}")
 
     def _send_log(self, user_id, timestamp):
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=LAGOS_TZ)
         payload = {"user_id": str(user_id), "timestamp": timestamp.isoformat()}
         headers = {"x-api-key": self.api_key, "Content-Type": "application/json"}
         try:

@@ -18,7 +18,7 @@ class AttendanceWindow(QMainWindow):
 
         # Set icon if available
         try:
-            self.setWindowIcon(QIcon("icon.png"))
+            self.setWindowIcon(QIcon("coclogo.png"))
         except Exception:
             pass
 
